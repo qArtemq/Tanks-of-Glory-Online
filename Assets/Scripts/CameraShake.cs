@@ -11,8 +11,6 @@ public class CameraShake : MonoBehaviour
     private float shakeTimerTotal;
     private float startingIntensity;
 
-    public GameObject spherePrefab;
-
     Player player; 
 
     private void Awake()
@@ -48,16 +46,10 @@ public class CameraShake : MonoBehaviour
         shakeTimer = time;
     }
 
-    public void UpdateCamera(Transform Target)
+    public void UpdateCamera(Transform target)
     {
-            // Привязываем Follow и LookAt к целям
-            _virtualCamera.Follow = Target;
-            _virtualCamera.LookAt = Target;
-
-        if (player.isDestroyed == true)
-        {
-            _virtualCamera.Follow = spherePrefab.transform;
-            _virtualCamera.LookAt = spherePrefab.transform;
-        }
+            _virtualCamera.Follow = target;
+            _virtualCamera.LookAt = target;
+        
     }
 }

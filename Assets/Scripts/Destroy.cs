@@ -7,6 +7,7 @@ public class Destroy : MonoBehaviour
 {
     [Header("Main Setting")]
     public Transform tower;
+    public Transform body;
     public Transform[] rightWheels;
     public Transform[] leftWheels;
 
@@ -23,7 +24,7 @@ public class Destroy : MonoBehaviour
     public GameObject explosionSmokeEffect;
 
     Player player;
-    private bool isDestroyed = false;
+    public bool isDestroyed = false;
 
     private GameManager gameManager;
 
@@ -62,24 +63,31 @@ public class Destroy : MonoBehaviour
         DetachAndLaunchTower();
         DetachAndLaunchWheels();
 
-        gameManager.DestroyTank(gameObject);
+        gameManager.TankToSpawn(body);
+
+        Destroy(gameObject, 10f);
     }
 
     void DetachAndLaunchTower()
     {
         // Проверяем, есть ли у башни компонент Rigidbody, если нет, добавляем его
         Rigidbody turretRb = tower.gameObject.GetComponent<Rigidbody>();
+        Rigidbody bodyRb = body.gameObject.GetComponent<Rigidbody>();
         if (turretRb == null)
         {
             turretRb = tower.gameObject.AddComponent<Rigidbody>();
         }
         tower.transform.parent = null; // Отсоединяем башню от корпуса
+        if (bodyRb == null)
+        {
+            bodyRb = body.gameObject.AddComponent<Rigidbody>();
+        }
 
         // Задаём импульс для взлёта башни
         turretRb.AddForce(Vector3.up * 100f + Random.insideUnitSphere * 50f); // Вверх и случайное направление
         turretRb.AddTorque(Random.insideUnitSphere * 100f); // Добавляем кручение для реализма
+        Destroy(body.gameObject, 10f);
 
-        // Удаляем башню через некоторое время
         Destroy(tower.gameObject, 10f);
     }
 
@@ -93,8 +101,8 @@ public class Destroy : MonoBehaviour
                 wheelRb = wheel.gameObject.AddComponent<Rigidbody>();
             }
             wheel.parent = null; // Отсоединяем колесо
-            wheelRb.AddForce(Random.insideUnitSphere * 150f);
-            wheelRb.AddTorque(Random.insideUnitSphere * 50f);
+            wheelRb.AddForce(Random.insideUnitSphere * 50f);
+            wheelRb.AddTorque(Random.insideUnitSphere * 20f);
             Destroy(wheel.gameObject, 10f);
         }
 
@@ -106,16 +114,9 @@ public class Destroy : MonoBehaviour
                 wheelRb = wheel.gameObject.AddComponent<Rigidbody>();
             }
             wheel.parent = null;
-            wheelRb.AddForce(Random.insideUnitSphere * 100f);
-            wheelRb.AddTorque(Random.insideUnitSphere * 50f);
+            wheelRb.AddForce(Random.insideUnitSphere * 10f);
+            wheelRb.AddTorque(Random.insideUnitSphere * 5f);
             Destroy(wheel.gameObject, 10f);
         }
-    }
-    IEnumerator RespawnTank()
-    {
-        yield return new WaitForSeconds(15f);
-
-        // Создаём новый танк на точке spawnPoint
-        Instantiate(tankPrefab, spawnPoint.position, spawnPoint.rotation);
     }
 }
