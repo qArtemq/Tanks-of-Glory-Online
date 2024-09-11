@@ -1,21 +1,24 @@
-using System.Collections;
+п»їusing System.Collections;
 using UnityEngine;
 using DG.Tweening;
 using Cinemachine;
 using UnityEngine.UIElements;
+using Unity.VisualScripting;
 
 public class Player : MonoBehaviour
 {
+
     [Header("Wheels Setting")]
-    public WheelCollider[] rightWheelColliders;  // Коллайдеры правых колес
-    public WheelCollider[] leftWheelColliders;   // Коллайдеры левых колес
     public Transform[] rightWheels;
     public Transform[] leftWheels;
-    public float motorTorque = 1500f;   // Сила на колеса для движения вперед
+    public float moveSpeed = 5f;     // РЎРєРѕСЂРѕСЃС‚СЊ РґРІРёР¶РµРЅРёСЏ С‚Р°РЅРєР°
+    public float rotationSpeed = 120f;    // РЎРєРѕСЂРѕСЃС‚СЊ РїРѕРІРѕСЂРѕС‚Р° С‚Р°РЅРєР°
+    public float speedWheels = 200f;
 
     [Header("Tower Setting")]
     public Transform tower;
     public Transform muzzle;
+    public float recoilForce = 10f;  // РЎРёР»Р° РѕС‚РґР°С‡Рё С‚Р°РЅРєР°
     public float speedTower = 2;
     public float recoilDistance = 0.5f;
     public float recoilSpeed = 5f;
@@ -46,12 +49,20 @@ public class Player : MonoBehaviour
     private bool isMoveSound = false;
     private bool wasMovingSound = false;
 
+    [Header("Effect Setting")]
+    public float range = 100f;
+    public ParticleSystem fireEffect;
+    public ParticleSystem smokeEffect;
+    public GameObject damageEffect;
+
     public AudioSource[] AudioSources { get { return audioSources; } set { audioSources = value; } }
 
 
-    private bool isAttack = false;
+
     [Header("Tank States")]
+    public bool isFlipped = false;  // РќРѕРІС‹Р№ С„Р»Р°Рі РґР»СЏ РѕС‚СЃР»РµР¶РёРІР°РЅРёСЏ РїРµСЂРµРІРѕСЂРѕС‚Р° С‚Р°РЅРєР°
     public bool isDestroyed = false;
+
 
     void Start()
     {
@@ -73,32 +84,62 @@ public class Player : MonoBehaviour
         moveAudioSource.volume = 0f;
         moveAudioSource.Play();
 
-        // Добавляем Rigidbody для взаимодействия с физикой
-        rb = GetComponent<Rigidbody>();
-        rb.centerOfMass = new Vector3(0, -1f, 0); // Центр массы для большей устойчивости
+        rb = GetComponent<Rigidbody>();  // РџРѕР»СѓС‡Р°РµРј РєРѕРјРїРѕРЅРµРЅС‚ Rigidbody
+        rb.constraints = RigidbodyConstraints.None;  // РЈР±РёСЂР°РµРј РѕРіСЂР°РЅРёС‡РµРЅРёСЏ РІСЂР°С‰РµРЅРёСЏ
+        rb.centerOfMass = new Vector3(0, -1, 0);
+        rb.mass = 5000f; // РЈРІРµР»РёС‡СЊС‚Рµ РјР°СЃСЃСѓ С‚Р°РЅРєР° РґР»СЏ СѓСЃС‚РѕР№С‡РёРІРѕСЃС‚Рё.
+        Physics.gravity = new Vector3(0, -30f, 0); // РЎРЅРёР·СЊС‚Рµ РІР»РёСЏРЅРёРµ РіСЂР°РІРёС‚Р°С†РёРё.
+
     }
     void Update()
     {
-        Move();
+        CheckIfFlipped();  // РџСЂРѕРІРµСЂРєР°, РїРµСЂРµРІРµСЂРЅСѓР»СЃСЏ Р»Рё С‚Р°РЅРє
+        if (!isFlipped)
+        {
+            Move();
+        }
         MoveTower();
+        RotateWheels();
         Attack();
     }
+    private void CheckIfFlipped()
+    {
+        // РџСЂРѕРІРµСЂСЏРµРј СѓРіРѕР» РЅР°РєР»РѕРЅР° РїРѕ РѕСЃРё X РёР»Рё Z, С‡С‚РѕР±С‹ РїРѕРЅСЏС‚СЊ, РїРµСЂРµРІРµСЂРЅСѓР»СЃСЏ Р»Рё С‚Р°РЅРє
+        float angle = Vector3.Angle(Vector3.up, transform.up);
+        if (angle > 45)  // Р•СЃР»Рё РЅР°РєР»РѕРЅ Р±РѕР»СЊС€Рµ 45 РіСЂР°РґСѓСЃРѕРІ, СЃС‡РёС‚Р°РµРј, С‡С‚Рѕ С‚Р°РЅРє РїРµСЂРµРІРµСЂРЅСѓР»СЃСЏ
+        {
+            isFlipped = true;
+        }
+        else
+        {
+            isFlipped = false;
+        }
+    }
+    private void FixedUpdate()
+    {
+        StabilizeTank();
+    }
+
+    private void StabilizeTank()
+    {
+        // РЎС‚Р°Р±РёР»РёР·Р°С†РёСЏ С‚Р°РЅРєР° РїСЂРё РЅР°РєР»РѕРЅР°С…
+        Vector3 predictedUp = Quaternion.AngleAxis(
+            rb.angularVelocity.magnitude * Mathf.Rad2Deg * 0.5f / tiltSpeed,
+            rb.angularVelocity) * transform.up;
+        Vector3 torqueVector = Vector3.Cross(predictedUp, Vector3.up);
+        rb.AddTorque(torqueVector * tiltSpeed * tiltSpeed);
+    }
+
     void Attack()
     {
         if (isDestroyed) return;
         if (Input.GetKeyDown(KeyCode.Space) && canShoot)
         {
+            Shoot();
             attackAudioSource.volume = 3f;
             StartCoroutine(WaitAttack());
 
-            if (isAttack)
-            {
-                attackAudioSource.PlayOneShot(shotSound);
-            }
-            else
-            {
-                attackAudioSource.PlayOneShot(shotSound);
-            }
+            attackAudioSource.PlayOneShot(shotSound);
 
             Vector3 recoilPosition = defaultPosition - new Vector3(0, 0, recoilDistance);
 
@@ -108,20 +149,51 @@ public class Player : MonoBehaviour
             {
                 muzzle.DOLocalMove(defaultPosition, 0.2f);
             });
+
+            Vector3 recoilForce = -transform.forward * recoilSpeed;  // РЈРІРµР»РёС‡РёРІР°РµРј СЃРёР»Сѓ РѕС‚РґР°С‡Рё
+            rb.AddForce(recoilForce, ForceMode.VelocityChange);
         }
+    }
+    void Shoot()
+    {
+        PlayFire();
+        ProcessRaycast();
+    }
+    void PlayFire()
+    {
+        fireEffect.Play();
+        smokeEffect.Play();
+        StartCoroutine(Smoke());
+    }
+    public IEnumerator Smoke()
+    {
+        yield return new WaitForSeconds(2f);
+
+        smokeEffect.Stop();
+
+    }
+    private void ProcessRaycast()
+    {
+        RaycastHit hit;
+        // РСЃРїРѕР»СЊР·СѓРµРј РЅР°РїСЂР°РІР»РµРЅРёРµ РґСѓР»Р° РґР»СЏ РІС‹С‡РёСЃР»РµРЅРёСЏ РІС‹СЃС‚СЂРµР»Р°
+        if (Physics.Raycast(muzzle.position, muzzle.forward, out hit, range))
+        {
+            CreateHitImpuct(hit);
+            // Р—РґРµСЃСЊ РјРѕР¶РЅРѕ РґРѕР±Р°РІРёС‚СЊ Р»РѕРіРёРєСѓ РґР»СЏ СѓСЂРѕРЅР° РІСЂР°РіР°Рј
+            return;
+        }
+    }
+    private void CreateHitImpuct(RaycastHit hit)
+    {
+        GameObject impact = Instantiate(damageEffect, hit.point, Quaternion.LookRotation(hit.normal));
+        Destroy(impact, 3f);
     }
 
     public IEnumerator WaitAttack()
     {
         canShoot = false;
-        if (isAttack)
-        {
-            attackAudioSource.PlayOneShot(reloadSound);
-        }
-        else
-        {
-            attackAudioSource.PlayOneShot(reloadSound);
-        }
+
+        attackAudioSource.PlayOneShot(reloadSound);
 
         yield return new WaitForSeconds(3f);
 
@@ -134,31 +206,31 @@ public class Player : MonoBehaviour
         bool isMovingNow = false;
 
         towerAudioSource.volume = 20f;
-        // Управление вращением башни
+        // РЈРїСЂР°РІР»РµРЅРёРµ РІСЂР°С‰РµРЅРёРµРј Р±Р°С€РЅРё
         if (Input.GetKey(KeyCode.K))
         {
-            // Поворот по оси Y на основе времени
+            // РџРѕРІРѕСЂРѕС‚ РїРѕ РѕСЃРё Y РЅР° РѕСЃРЅРѕРІРµ РІСЂРµРјРµРЅРё
             tower.Rotate(Vector3.up, -speedTower * Time.deltaTime);
             isMovingNow = true;
         }
         else if (Input.GetKey(KeyCode.L))
         {
-            // Поворот в противоположную сторону по оси Y на основе времени
+            // РџРѕРІРѕСЂРѕС‚ РІ РїСЂРѕС‚РёРІРѕРїРѕР»РѕР¶РЅСѓСЋ СЃС‚РѕСЂРѕРЅСѓ РїРѕ РѕСЃРё Y РЅР° РѕСЃРЅРѕРІРµ РІСЂРµРјРµРЅРё
             tower.Rotate(Vector3.up, speedTower * Time.deltaTime);
             isMovingNow = true;
         }
 
-        // Логика воспроизведения звуков для башни
+        // Р›РѕРіРёРєР° РІРѕСЃРїСЂРѕРёР·РІРµРґРµРЅРёСЏ Р·РІСѓРєРѕРІ РґР»СЏ Р±Р°С€РЅРё
         if (isMovingNow && !isTowerMoving)
         {
-            // Начало движения башни
+            // РќР°С‡Р°Р»Рѕ РґРІРёР¶РµРЅРёСЏ Р±Р°С€РЅРё
             towerAudioSource.clip = towerSound;
             towerAudioSource.loop = true;
             towerAudioSource.Play();
         }
         else if (!isMovingNow && isTowerMoving)
         {
-            // Остановка звука после прекращения движения башни
+            // РћСЃС‚Р°РЅРѕРІРєР° Р·РІСѓРєР° РїРѕСЃР»Рµ РїСЂРµРєСЂР°С‰РµРЅРёСЏ РґРІРёР¶РµРЅРёСЏ Р±Р°С€РЅРё
             towerAudioSource.Stop();
         }
 
@@ -166,152 +238,136 @@ public class Player : MonoBehaviour
     }
     void Move()
     {
+        if (isFlipped) return;
         if (isDestroyed)
         {
-            // Останавливаем звук движения и ожидания
+            // РћСЃС‚Р°РЅР°РІР»РёРІР°РµРј Р·РІСѓРє РґРІРёР¶РµРЅРёСЏ Рё РѕР¶РёРґР°РЅРёСЏ
             moveAudioSource.volume = 0f;
             waitAudioSource.volume = 0f;
-            return; // Прекращаем выполнение метода Move
+            return; // РџСЂРµРєСЂР°С‰Р°РµРј РІС‹РїРѕР»РЅРµРЅРёРµ РјРµС‚РѕРґР° Move
         }
-        float motorInput = Input.GetAxis("Vertical") * motorTorque;
-        float steerInput = Input.GetAxis("Horizontal");
-
-        // Применение трения для колес
-        ApplyWheelFriction(steerInput);
 
 
-        isMoveSound = Mathf.Abs(motorInput) > 0.01f || Mathf.Abs(steerInput) > 0.01f;
+        float moveInput = Input.GetAxis("Vertical");
+        float turnInput = Input.GetAxis("Horizontal");
+
+
+        // Р”РІРёРіР°РµРј С‚Р°РЅРє РІРїРµСЂРµРґ/РЅР°Р·Р°Рґ СЃ РїРѕСЃС‚РѕСЏРЅРЅРѕР№ СЃРєРѕСЂРѕСЃС‚СЊСЋ
+        transform.Translate(Vector3.forward * moveInput * moveSpeed * Time.deltaTime);
+
+        // Р’СЂР°С‰Р°РµРј С‚Р°РЅРє РІРѕРєСЂСѓРі РІРµСЂС‚РёРєР°Р»СЊРЅРѕР№ РѕСЃРё Y (РїРѕРІРѕСЂРѕС‚ РІРѕРєСЂСѓРі СЃРІРѕРµР№ РѕСЃРё)
+        transform.Rotate(Vector3.up, turnInput * rotationSpeed * Time.deltaTime);
+
+
+
+        isMoveSound = Mathf.Abs(moveInput) > 0.01f || Mathf.Abs(turnInput) > 0.01f;
 
         if (isMoveSound && !wasMovingSound)
         {
-            // Плавное увеличение звука движения и уменьшение звука ожидания
-            moveAudioSource.DOFade(0.5f, 1f); // Увеличиваем громкость звука движения
-            waitAudioSource.DOFade(0f, 1f); // Уменьшаем громкость звука ожидания
-            isAttack = true;
+            // РџР»Р°РІРЅРѕРµ СѓРІРµР»РёС‡РµРЅРёРµ Р·РІСѓРєР° РґРІРёР¶РµРЅРёСЏ Рё СѓРјРµРЅСЊС€РµРЅРёРµ Р·РІСѓРєР° РѕР¶РёРґР°РЅРёСЏ
+            moveAudioSource.DOFade(0.5f, 1f); // РЈРІРµР»РёС‡РёРІР°РµРј РіСЂРѕРјРєРѕСЃС‚СЊ Р·РІСѓРєР° РґРІРёР¶РµРЅРёСЏ
+            waitAudioSource.DOFade(0f, 1f); // РЈРјРµРЅСЊС€Р°РµРј РіСЂРѕРјРєРѕСЃС‚СЊ Р·РІСѓРєР° РѕР¶РёРґР°РЅРёСЏ
         }
         else if (!isMoveSound && wasMovingSound)
         {
-            // Плавное уменьшение звука движения и увеличение звука ожидания
-            moveAudioSource.DOFade(0f, 1f); // Уменьшаем громкость звука движения
-            waitAudioSource.DOFade(0.5f, 1f); // Увеличиваем громкость звука ожидания
-            isAttack = false;
+            // РџР»Р°РІРЅРѕРµ СѓРјРµРЅСЊС€РµРЅРёРµ Р·РІСѓРєР° РґРІРёР¶РµРЅРёСЏ Рё СѓРІРµР»РёС‡РµРЅРёРµ Р·РІСѓРєР° РѕР¶РёРґР°РЅРёСЏ
+            moveAudioSource.DOFade(0f, 1f); // РЈРјРµРЅСЊС€Р°РµРј РіСЂРѕРјРєРѕСЃС‚СЊ Р·РІСѓРєР° РґРІРёР¶РµРЅРёСЏ
+            waitAudioSource.DOFade(0.5f, 1f); // РЈРІРµР»РёС‡РёРІР°РµРј РіСЂРѕРјРєРѕСЃС‚СЊ Р·РІСѓРєР° РѕР¶РёРґР°РЅРёСЏ
         }
 
         wasMovingSound = isMoveSound;
 
-        // Если нет ввода (отпущены клавиши движения), применяем торможение
-        if (Mathf.Abs(motorInput) < 0.1f && Mathf.Abs(steerInput) < 0.1f)
+        // РћРїСЂРµРґРµР»СЏРµРј С†РµР»РµРІРѕР№ СѓРіРѕР» РІ Р·Р°РІРёСЃРёРјРѕСЃС‚Рё РѕС‚ РґРІРёР¶РµРЅРёСЏ РІРїРµСЂРµРґ РёР»Рё РЅР°Р·Р°Рґ
+        if (moveInput > 0)
         {
-            foreach (WheelCollider wheel in rightWheelColliders)
-            {
-                wheel.brakeTorque = 3000f; // Применяем торможение на правые колеса
-                wheel.motorTorque = 0f;
-            }
-            foreach (WheelCollider wheel in leftWheelColliders)
-            {
-                wheel.brakeTorque = 3000f; // Применяем торможение на левые колеса
-                wheel.motorTorque = 0f;
-            }
+            targetTiltAngle = -5.0f; // РЈРІРµР»РёС‡РёРІР°РµРј СѓРіРѕР» РЅР°РєР»РѕРЅР° РІРїРµСЂРµРґ
+        }
+        else if (moveInput < 0)
+        {
+            targetTiltAngle = 5.0f; // РЈРјРµРЅСЊС€Р°РµРј СѓРіРѕР» РЅР°РєР»РѕРЅР° РЅР°Р·Р°Рґ
         }
         else
         {
-            // Если есть ввод, убираем торможение и применяем силу на колеса
-            foreach (WheelCollider wheel in rightWheelColliders)
-            {
-                wheel.motorTorque = motorInput;
-                wheel.brakeTorque = 0f;  // Отключаем торможение
-            }
-            foreach (WheelCollider wheel in leftWheelColliders)
-            {
-                wheel.motorTorque = motorInput;
-                wheel.brakeTorque = 0f;  // Отключаем торможение
-            }
-        }
-
-        // Определяем целевой угол в зависимости от движения вперед или назад
-        if (motorInput > 0)
-        {
-            targetTiltAngle = -2.0f; // Увеличиваем угол наклона вперед
-        }
-        else if (motorInput < 0)
-        {
-            targetTiltAngle = 1.0f; // Уменьшаем угол наклона назад
-        }
-        else
-        {
-            targetTiltAngle = 0.0f; // Возвращаемся в исходное положение
+            targetTiltAngle = 0.0f; // Р’РѕР·РІСЂР°С‰Р°РµРјСЃСЏ РІ РёСЃС…РѕРґРЅРѕРµ РїРѕР»РѕР¶РµРЅРёРµ
         }
 
 
-        // Плавно изменяем текущий угол к целевому
+        // РџР»Р°РІРЅРѕ РёР·РјРµРЅСЏРµРј С‚РµРєСѓС‰РёР№ СѓРіРѕР» Рє С†РµР»РµРІРѕРјСѓ
         tiltAngle = Mathf.Lerp(tiltAngle, targetTiltAngle, Time.deltaTime * tiltSpeed);
 
-        // Применяем текущий угол ко всем частям тела
+        // РџСЂРёРјРµРЅСЏРµРј С‚РµРєСѓС‰РёР№ СѓРіРѕР» РєРѕ РІСЃРµРј С‡Р°СЃС‚СЏРј С‚РµР»Р°
 
-        // Поворот по оси X для наклона
+        // РџРѕРІРѕСЂРѕС‚ РїРѕ РѕСЃРё X РґР»СЏ РЅР°РєР»РѕРЅР°
         body.transform.localRotation = Quaternion.Lerp(
             body.transform.localRotation,
             Quaternion.Euler(tiltAngle, 0, 0),
             Time.deltaTime * tiltSpeed);
 
-        // Применяем наклон к башне
+        // РџСЂРёРјРµРЅСЏРµРј РЅР°РєР»РѕРЅ Рє Р±Р°С€РЅРµ
         tower.localRotation = Quaternion.Lerp(
             tower.localRotation,
             Quaternion.Euler(tiltAngle, tower.localRotation.eulerAngles.y, 0),
             Time.deltaTime * tiltSpeed);
+        WheelRotation(moveInput, turnInput);
+    }
+    void RotateWheels()
+    {
+        float moveInput = Input.GetAxis("Vertical");
+        float turnInput = Input.GetAxis("Horizontal");
 
-        // Применение ограничения на поворот
-        if (steerInput != 0)
+        // Р’СЂР°С‰РµРЅРёРµ РєРѕР»РµСЃ РїСЂРё РґРІРёР¶РµРЅРёРё РІРїРµСЂРµРґ/РЅР°Р·Р°Рґ Рё РїРѕРІРѕСЂРѕС‚Рµ
+        float forwardRotation = moveInput * speedWheels * Time.deltaTime;
+
+        foreach (Transform wheel in rightWheels)
         {
-            float turnTorque = steerInput * motorTorque; // Используем rotateTorque для поворота
-            foreach (WheelCollider wheel in rightWheelColliders)
-            {
-                wheel.motorTorque = -turnTorque; // Правые колеса двигаются в обратную сторону
-            }
-            foreach (WheelCollider wheel in leftWheelColliders)
-            {
-                wheel.motorTorque = turnTorque;  // Левые колеса двигаются вперед
-            }
-
-
-            UpdateWheelVisuals();
+            wheel.Rotate(Vector3.right, forwardRotation);  // Р’СЂР°С‰РµРЅРёРµ РїСЂР°РІС‹С… РєРѕР»РµСЃ
         }
-        void UpdateWheelVisuals()
+        foreach (Transform wheel in leftWheels)
         {
-            for (int i = 0; i < rightWheels.Length; i++)
-            {
-                UpdateWheelPosition(rightWheelColliders[i], rightWheels[i]);
-            }
+            wheel.Rotate(Vector3.right, forwardRotation);  // Р’СЂР°С‰РµРЅРёРµ Р»РµРІС‹С… РєРѕР»РµСЃ
+        }
 
-            for (int i = 0; i < leftWheels.Length; i++)
+        if (Mathf.Abs(turnInput) > 0.01f)
+        {
+            float turnRotation = turnInput * rotationSpeed * Time.deltaTime;
+            foreach (Transform wheel in rightWheels)
             {
-                UpdateWheelPosition(leftWheelColliders[i], leftWheels[i]);
+                wheel.Rotate(Vector3.right, -turnRotation);  // РџСЂРѕС‚РёРІРѕРїРѕР»РѕР¶РЅРѕРµ РІСЂР°С‰РµРЅРёРµ РїСЂР°РІС‹С… РєРѕР»РµСЃ
+            }
+            foreach (Transform wheel in leftWheels)
+            {
+                wheel.Rotate(Vector3.right, turnRotation);  // Р’СЂР°С‰РµРЅРёРµ Р»РµРІС‹С… РєРѕР»РµСЃ
             }
         }
-        void UpdateWheelPosition(WheelCollider collider, Transform wheelTransform)
+    }
+
+
+
+    void WheelRotation(float forward_back, float left_right)
+    {
+        // Р’СЂР°С‰РµРЅРёРµ РєРѕР»РµСЃ РїСЂРё РґРІРёР¶РµРЅРёРё РІРїРµСЂРµРґ/РЅР°Р·Р°Рґ
+        float forwardRotation = forward_back * speedWheels * Time.deltaTime;
+        // Р’СЂР°С‰Р°РµРј РїСЂР°РІС‹Рµ Рё Р»РµРІС‹Рµ РєРѕР»РµСЃР° РїСЂРё РґРІРёР¶РµРЅРёРё РІРїРµСЂРµРґ/РЅР°Р·Р°Рґ
+        foreach (Transform wheel in rightWheels)
         {
-            Vector3 pos;
-            Quaternion rot;
-            collider.GetWorldPose(out pos, out rot);
-            wheelTransform.position = pos;
-            wheelTransform.rotation = rot;
+            wheel.Rotate(Vector3.right, forwardRotation);  // Р’СЂР°С‰Р°РµРј РєРѕР»РµСЃР° РїРѕ РѕСЃРё X (РІРїРµСЂРµРґ-РЅР°Р·Р°Рґ)
         }
-        void ApplyWheelFriction(float steerInput)
+        foreach (Transform wheel in leftWheels)
         {
-            float targetStiffness = steerInput != 0 ? 0.5f : 1.0f;
+            wheel.Rotate(Vector3.right, forwardRotation);  // Р’СЂР°С‰Р°РµРј РєРѕР»РµСЃР° РїРѕ РѕСЃРё X (РІРїРµСЂРµРґ-РЅР°Р·Р°Рґ)
+        }
 
-            foreach (WheelCollider wheel in rightWheelColliders)
+        // Р”РѕРїРѕР»РЅРёС‚РµР»СЊРЅРѕРµ РІСЂР°С‰РµРЅРёРµ РєРѕР»РµСЃ РїСЂРё РїРѕРІРѕСЂРѕС‚Рµ (РµСЃР»Рё С‚Р°РЅРє РїРѕРІРѕСЂР°С‡РёРІР°РµС‚)
+        if (Mathf.Abs(left_right) > 0.01f)
+        {
+            float turnRotation = left_right * rotationSpeed * Time.deltaTime;
+            foreach (Transform wheel in rightWheels)
             {
-                WheelFrictionCurve friction = wheel.sidewaysFriction;
-                friction.stiffness = Mathf.Lerp(friction.stiffness, targetStiffness, Time.deltaTime * 2f);
-                wheel.sidewaysFriction = friction;
+                wheel.Rotate(Vector3.right, -turnRotation); // Р’СЂР°С‰Р°РµРј РїСЂР°РІС‹Рµ РєРѕР»РµСЃР° РІ РїСЂРѕС‚РёРІРѕРїРѕР»РѕР¶РЅСѓСЋ СЃС‚РѕСЂРѕРЅСѓ РїСЂРё РїРѕРІРѕСЂРѕС‚Рµ
             }
-
-            foreach (WheelCollider wheel in leftWheelColliders)
+            foreach (Transform wheel in leftWheels)
             {
-                WheelFrictionCurve friction = wheel.sidewaysFriction;
-                friction.stiffness = Mathf.Lerp(friction.stiffness, targetStiffness, Time.deltaTime * 2f);
-                wheel.sidewaysFriction = friction;
+                wheel.Rotate(Vector3.right, turnRotation); // Р’СЂР°С‰Р°РµРј Р»РµРІС‹Рµ РєРѕР»РµСЃР° РїСЂРё РїРѕРІРѕСЂРѕС‚Рµ
             }
         }
     }

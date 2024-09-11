@@ -48,8 +48,17 @@ public class CameraShake : MonoBehaviour
 
     public void UpdateCamera(Transform target)
     {
-            _virtualCamera.Follow = target;
-            _virtualCamera.LookAt = target;
-        
+        _virtualCamera.Follow = target;
+        _virtualCamera.LookAt = target;
+
+        // —глаживание движени€ камеры
+        _virtualCamera.transform.position = Vector3.Lerp(
+            _virtualCamera.transform.position,
+            target.position,
+            Time.deltaTime * 2f);
+        _virtualCamera.transform.rotation = Quaternion.Lerp(
+            _virtualCamera.transform.rotation,
+            target.rotation,
+            Time.deltaTime * 2f);
     }
 }

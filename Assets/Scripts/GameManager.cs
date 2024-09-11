@@ -96,7 +96,7 @@ public class GameManager : MonoBehaviour
         Destroy(tankCamera.gameObject);
         Destroy(sphere);  // ”ничтожаем шар после его движени€
 
-        StartCoroutine(RespawnTankWithDelay(2f, targetPos));
+        StartCoroutine(RespawnTankWithDelay(1f, targetPos));
     }
 
     //  орутин дл€ респауна танка и возврата камеры на танк

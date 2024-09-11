@@ -70,24 +70,28 @@ public class Destroy : MonoBehaviour
 
     void DetachAndLaunchTower()
     {
-        // Проверяем, есть ли у башни компонент Rigidbody, если нет, добавляем его
         Rigidbody turretRb = tower.gameObject.GetComponent<Rigidbody>();
         Rigidbody bodyRb = body.gameObject.GetComponent<Rigidbody>();
         if (turretRb == null)
         {
             turretRb = tower.gameObject.AddComponent<Rigidbody>();
         }
-        tower.transform.parent = null; // Отсоединяем башню от корпуса
         if (bodyRb == null)
         {
             bodyRb = body.gameObject.AddComponent<Rigidbody>();
         }
 
-        // Задаём импульс для взлёта башни
-        turretRb.AddForce(Vector3.up * 100f + Random.insideUnitSphere * 50f); // Вверх и случайное направление
-        turretRb.AddTorque(Random.insideUnitSphere * 100f); // Добавляем кручение для реализма
-        Destroy(body.gameObject, 10f);
+        // Настройка массы для башни и корпуса
+        turretRb.mass = 1000f; // Большая масса для тяжести
+        bodyRb.mass = 2000f;   // Ещё больше масса для корпуса
 
+        tower.transform.parent = null;
+
+        // Убираем силу подлёта (значения минимальны)
+        turretRb.AddForce(Vector3.up * 2f + Random.insideUnitSphere * 1f);
+        turretRb.AddTorque(Random.insideUnitSphere * 1f);
+
+        Destroy(body.gameObject, 10f);
         Destroy(tower.gameObject, 10f);
     }
 
@@ -100,9 +104,26 @@ public class Destroy : MonoBehaviour
             {
                 wheelRb = wheel.gameObject.AddComponent<Rigidbody>();
             }
-            wheel.parent = null; // Отсоединяем колесо
-            wheelRb.AddForce(Random.insideUnitSphere * 50f);
-            wheelRb.AddTorque(Random.insideUnitSphere * 20f);
+
+            WheelCollider wheelCollider = wheel.GetComponentInParent<WheelCollider>();
+            if (wheelCollider != null)
+            {
+                Destroy(wheelCollider);
+            }
+
+            if (wheel.GetComponent<Collider>() == null)
+            {
+                wheel.gameObject.AddComponent<BoxCollider>();
+            }
+
+            wheel.position += Vector3.up * 0.5f;
+
+            wheelRb.mass = 500f; // Большая масса для колес
+
+            wheel.parent = null;
+            wheelRb.AddForce(Random.insideUnitSphere * 1f); // Очень слабый импульс
+            wheelRb.AddTorque(Random.insideUnitSphere * 1f); // Очень слабое вращение
+
             Destroy(wheel.gameObject, 10f);
         }
 
@@ -113,10 +134,28 @@ public class Destroy : MonoBehaviour
             {
                 wheelRb = wheel.gameObject.AddComponent<Rigidbody>();
             }
+
+            WheelCollider wheelCollider = wheel.GetComponentInParent<WheelCollider>();
+            if (wheelCollider != null)
+            {
+                Destroy(wheelCollider);
+            }
+
+            if (wheel.GetComponent<Collider>() == null)
+            {
+                wheel.gameObject.AddComponent<BoxCollider>();
+            }
+
+            wheel.position += Vector3.up * 0.5f;
+
+            wheelRb.mass = 500f; // Большая масса
+
             wheel.parent = null;
-            wheelRb.AddForce(Random.insideUnitSphere * 10f);
-            wheelRb.AddTorque(Random.insideUnitSphere * 5f);
+            wheelRb.AddForce(Random.insideUnitSphere * 1f);
+            wheelRb.AddTorque(Random.insideUnitSphere * 1f);
+
             Destroy(wheel.gameObject, 10f);
         }
     }
+
 }
