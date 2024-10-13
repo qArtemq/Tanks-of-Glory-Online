@@ -1,8 +1,9 @@
 using Cinemachine;
 using System.Collections;
 using UnityEngine;
+using Photon.Pun;
 
-public class CameraShake : MonoBehaviour
+public class CameraShake : MonoBehaviourPunCallbacks
 {
     public static CameraShake Instance { get; private set; }
 
@@ -11,7 +12,7 @@ public class CameraShake : MonoBehaviour
     private float shakeTimerTotal;
     private float startingIntensity;
 
-    Player player; 
+    Player player;
 
     private void Awake()
     {

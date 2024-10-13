@@ -4,8 +4,9 @@ using DG.Tweening;
 using Cinemachine;
 using UnityEngine.UIElements;
 using Unity.VisualScripting;
+using Photon.Pun;
 
-public class Player : MonoBehaviour
+public class Player : MonoBehaviourPunCallbacks
 {
 
     [Header("Wheels Setting")]
@@ -15,17 +16,6 @@ public class Player : MonoBehaviour
     public float rotationSpeed = 120f;    // Скорость поворота танка
     public float speedWheels = 200f;
 
-    [Header("Tower Setting")]
-    public Transform tower;
-    public Transform muzzle;
-    public float recoilForce = 10f;  // Сила отдачи танка
-    public float speedTower = 2;
-    public float recoilDistance = 0.5f;
-    public float recoilSpeed = 5f;
-    private Vector3 defaultPosition;
-    private bool canShoot = true;
-    private bool isTowerMoving = false;
-
     [Header("Tilt Simulation")]
     public Transform body;
     public float tiltAngle = 5f;
@@ -33,58 +23,53 @@ public class Player : MonoBehaviour
     private float targetTiltAngle = 0.0f;
 
     [Header("Audio Setting")]
-    [SerializeField] public AudioClip waitSound;
+    public AudioClip waitSound;
     public AudioClip moveSound;
-    public AudioClip reloadSound;
-    public AudioClip shotSound;
-    public AudioClip towerSound;
-
-    private Rigidbody rb;
-
     private AudioSource waitAudioSource;
     private AudioSource moveAudioSource;
-    private AudioSource towerAudioSource;
-    private AudioSource attackAudioSource;
     private AudioSource[] audioSources;
     private bool isMoveSound = false;
     private bool wasMovingSound = false;
-
-    [Header("Effect Setting")]
-    public float range = 100f;
-    public ParticleSystem fireEffect;
-    public ParticleSystem smokeEffect;
-    public GameObject damageEffect;
-
+    private Rigidbody rb;
     public AudioSource[] AudioSources { get { return audioSources; } set { audioSources = value; } }
 
+    [Header("Effect Setting")]
+    public ParticleSystem[] waitEffect;
+    public ParticleSystem[] goEffect;
+    public ParticleSystem[] boostEffect;
+    public ParticleSystem[] graundEffect;
 
+    [Header("Boost Setting")]
+    public float boostSpeed = 20f; // Скорость во время буста
+    public float boostDuration = 3f; // Длительность буста
+    public bool isBoosting = false; // Активирован ли буст
+    public float boostCooldown = 5f; // Время до следующего буста
+    public float boostCooldownTimer = 0f; // Таймер для буста
 
     [Header("Tank States")]
     public bool isFlipped = false;  // Новый флаг для отслеживания переворота танка
     public bool isDestroyed = false;
+    public bool isInvisible = false;
 
+    ManagerTower managerTower;
 
     void Start()
     {
-        defaultPosition = muzzle.transform.localPosition;
-
+        managerTower = GetComponent<ManagerTower>();
+        rb = GetComponent<Rigidbody>();
         audioSources = GetComponents<AudioSource>();
         waitAudioSource = audioSources[0];
         moveAudioSource = audioSources[1];
-        towerAudioSource = audioSources[2];
-        attackAudioSource = audioSources[3];
 
         waitAudioSource.clip = waitSound;
         waitAudioSource.loop = true;
-        waitAudioSource.volume = 0.5f;
+        waitAudioSource.volume = 0.2f;
         waitAudioSource.Play();
 
         moveAudioSource.clip = moveSound;
         moveAudioSource.loop = true;
         moveAudioSource.volume = 0f;
         moveAudioSource.Play();
-
-        rb = GetComponent<Rigidbody>();  // Получаем компонент Rigidbody
         rb.constraints = RigidbodyConstraints.None;  // Убираем ограничения вращения
         rb.centerOfMass = new Vector3(0, -1, 0);
         rb.mass = 5000f; // Увеличьте массу танка для устойчивости.
@@ -93,14 +78,27 @@ public class Player : MonoBehaviour
     }
     void Update()
     {
-        CheckIfFlipped();  // Проверка, перевернулся ли танк
-        if (!isFlipped)
+        if (photonView.IsMine)
         {
-            Move();
+            if (Input.GetKey(KeyCode.Q))
+            {
+                BoostTank(); // Активируем буст
+            }
+            // Обновляем таймер перезарядки буста
+            if (boostCooldownTimer > 0f)
+            {
+                boostCooldownTimer -= Time.deltaTime;
+            }
+            CheckIfFlipped();  // Проверка, перевернулся ли танк
+            if (!isFlipped)
+            {
+                Move();
+            }
         }
-        MoveTower();
-        RotateWheels();
-        Attack();
+    }
+    private void FixedUpdate()
+    {
+        StabilizeTank();
     }
     private void CheckIfFlipped()
     {
@@ -115,10 +113,6 @@ public class Player : MonoBehaviour
             isFlipped = false;
         }
     }
-    private void FixedUpdate()
-    {
-        StabilizeTank();
-    }
 
     private void StabilizeTank()
     {
@@ -129,112 +123,86 @@ public class Player : MonoBehaviour
         Vector3 torqueVector = Vector3.Cross(predictedUp, Vector3.up);
         rb.AddTorque(torqueVector * tiltSpeed * tiltSpeed);
     }
-
-    void Attack()
+    void BoostTank()
     {
-        if (isDestroyed) return;
-        if (Input.GetKeyDown(KeyCode.Space) && canShoot)
+        // Проверяем, доступен ли буст
+        if (isBoosting || boostCooldownTimer > 0f)
         {
-            Shoot();
-            attackAudioSource.volume = 3f;
-            StartCoroutine(WaitAttack());
+            return; // Если танк уже в состоянии буста или буст на перезарядке
+        }
 
-            attackAudioSource.PlayOneShot(shotSound);
+        // Увеличиваем скорость танка на время действия буста
+        StartCoroutine(BoostCoroutine());
+    }
 
-            Vector3 recoilPosition = defaultPosition - new Vector3(0, 0, recoilDistance);
+    IEnumerator BoostCoroutine()
+    {
+        isBoosting = true;
+        float originalSpeed = moveSpeed; // Сохраняем обычную скорость
+        moveSpeed = boostSpeed; // Устанавливаем скорость буста
 
-            CameraShake.Instance.ShakeCamera(5f, 1f);
+        // Устанавливаем таймер на полную длительность буста
+        boostCooldownTimer = boostDuration;
 
-            muzzle.DOLocalMove(recoilPosition, 0.2f).OnComplete(() =>
+        // Останавливаем обычные эффекты и включаем буст
+        StopWaitEffect();
+        StopGoEffect();
+        PlayGroundEffect();
+        // Вызываем буст для всех клиентов
+        photonView.RPC("ActivateBoostEffect", RpcTarget.All);
+
+        // Ждем окончания действия буста
+        yield return new WaitForSeconds(boostDuration);
+
+        // Возвращаем скорость обратно
+        moveSpeed = originalSpeed;
+        isBoosting = false;
+
+        // Включаем перезарядку буста
+        boostCooldownTimer = boostCooldown;
+
+        // Останавливаем эффекты буста
+        photonView.RPC("StopBoostEffect", RpcTarget.All);
+        // Проверяем, если танк продолжает двигаться после окончания буста
+        if (Mathf.Abs(Input.GetAxis("Vertical")) > 0.01f || Mathf.Abs(Input.GetAxis("Horizontal")) > 0.01f)
+        {
+            PlayGoEffect(); // Включаем эффект движения, если танк продолжает движение
+            PlayGroundEffect();
+        }
+        else
+        {
+            PlayWaitEffect(); // Включаем эффект ожидания, если танк остановился
+        }
+    }
+    // Используем RPC для вызова буста у всех игроков
+    [PunRPC]
+    void ActivateBoostEffect()
+    {
+        // Включаем эффекты буста у всех клиентов
+        PlayBoostEffect();
+    }
+    void PlayBoostEffect()
+    {
+        // Добавьте здесь код для визуальных эффектов буста, например огонь из выхлопной трубы
+        foreach (var effect in boostEffect)
+        {
+            if (!effect.isPlaying)
             {
-                muzzle.DOLocalMove(defaultPosition, 0.2f);
-            });
-
-            Vector3 recoilForce = -transform.forward * recoilSpeed;  // Увеличиваем силу отдачи
-            rb.AddForce(recoilForce, ForceMode.VelocityChange);
+                effect.Play();
+            }
         }
     }
-    void Shoot()
+    [PunRPC]
+    void StopBoostEffect()
     {
-        PlayFire();
-        ProcessRaycast();
-    }
-    void PlayFire()
-    {
-        fireEffect.Play();
-        smokeEffect.Play();
-        StartCoroutine(Smoke());
-    }
-    public IEnumerator Smoke()
-    {
-        yield return new WaitForSeconds(2f);
-
-        smokeEffect.Stop();
-
-    }
-    private void ProcessRaycast()
-    {
-        RaycastHit hit;
-        // Используем направление дула для вычисления выстрела
-        if (Physics.Raycast(muzzle.position, muzzle.forward, out hit, range))
+        // Останавливаем эффекты буста
+        foreach (var effect in boostEffect)
         {
-            CreateHitImpuct(hit);
-            // Здесь можно добавить логику для урона врагам
-            return;
+            if (effect.isPlaying)
+            {
+                effect.Stop();
+            }
         }
-    }
-    private void CreateHitImpuct(RaycastHit hit)
-    {
-        GameObject impact = Instantiate(damageEffect, hit.point, Quaternion.LookRotation(hit.normal));
-        Destroy(impact, 3f);
-    }
-
-    public IEnumerator WaitAttack()
-    {
-        canShoot = false;
-
-        attackAudioSource.PlayOneShot(reloadSound);
-
-        yield return new WaitForSeconds(3f);
-
-        canShoot = true;
-    }
-
-    void MoveTower()
-    {
-        if (isDestroyed) return;
-        bool isMovingNow = false;
-
-        towerAudioSource.volume = 20f;
-        // Управление вращением башни
-        if (Input.GetKey(KeyCode.K))
-        {
-            // Поворот по оси Y на основе времени
-            tower.Rotate(Vector3.up, -speedTower * Time.deltaTime);
-            isMovingNow = true;
-        }
-        else if (Input.GetKey(KeyCode.L))
-        {
-            // Поворот в противоположную сторону по оси Y на основе времени
-            tower.Rotate(Vector3.up, speedTower * Time.deltaTime);
-            isMovingNow = true;
-        }
-
-        // Логика воспроизведения звуков для башни
-        if (isMovingNow && !isTowerMoving)
-        {
-            // Начало движения башни
-            towerAudioSource.clip = towerSound;
-            towerAudioSource.loop = true;
-            towerAudioSource.Play();
-        }
-        else if (!isMovingNow && isTowerMoving)
-        {
-            // Остановка звука после прекращения движения башни
-            towerAudioSource.Stop();
-        }
-
-        isTowerMoving = isMovingNow;
     }
     void Move()
     {
@@ -244,39 +212,49 @@ public class Player : MonoBehaviour
             // Останавливаем звук движения и ожидания
             moveAudioSource.volume = 0f;
             waitAudioSource.volume = 0f;
+            StopAllEffects();
             return; // Прекращаем выполнение метода Move
         }
-
-
         float moveInput = Input.GetAxis("Vertical");
         float turnInput = Input.GetAxis("Horizontal");
 
-
-        // Двигаем танк вперед/назад с постоянной скоростью
-        transform.Translate(Vector3.forward * moveInput * moveSpeed * Time.deltaTime);
-
-        // Вращаем танк вокруг вертикальной оси Y (поворот вокруг своей оси)
-        transform.Rotate(Vector3.up, turnInput * rotationSpeed * Time.deltaTime);
-
-
-
-        isMoveSound = Mathf.Abs(moveInput) > 0.01f || Mathf.Abs(turnInput) > 0.01f;
-
-        if (isMoveSound && !wasMovingSound)
+        if (photonView.IsMine)  // Только свой танк должен воспроизводить звуки движения
         {
-            // Плавное увеличение звука движения и уменьшение звука ожидания
-            moveAudioSource.DOFade(0.5f, 1f); // Увеличиваем громкость звука движения
-            waitAudioSource.DOFade(0f, 1f); // Уменьшаем громкость звука ожидания
-        }
-        else if (!isMoveSound && wasMovingSound)
-        {
-            // Плавное уменьшение звука движения и увеличение звука ожидания
-            moveAudioSource.DOFade(0f, 1f); // Уменьшаем громкость звука движения
-            waitAudioSource.DOFade(0.5f, 1f); // Увеличиваем громкость звука ожидания
-        }
+            // Двигаем танк вперед/назад с постоянной скоростью
+            transform.Translate(Vector3.forward * moveInput * moveSpeed * Time.deltaTime);
 
-        wasMovingSound = isMoveSound;
+            // Вращаем танк вокруг вертикальной оси Y (поворот вокруг своей оси)
+            transform.Rotate(Vector3.up, turnInput * rotationSpeed * Time.deltaTime);
 
+            isMoveSound = Mathf.Abs(moveInput) > 0.01f || Mathf.Abs(turnInput) > 0.01f;
+
+            if (isMoveSound && !wasMovingSound)
+            {
+                moveAudioSource.DOFade(0.2f, 0.2f);  // Увеличиваем громкость звука движения
+                waitAudioSource.DOFade(0f, 0.2f);    // Уменьшаем громкость звука ожидания
+
+                if (!isBoosting)
+                {
+                    PlayGoEffect();
+                    PlayGroundEffect();
+                    StopWaitEffect();
+                }
+            }
+            else if (!isMoveSound && wasMovingSound)
+            {
+                moveAudioSource.DOFade(0f, 0.2f);    // Уменьшаем громкость звука движения
+                waitAudioSource.DOFade(0.2f, 0.2f);  // Увеличиваем громкость звука ожидания
+
+                if (!isBoosting)
+                {
+                    PlayWaitEffect();
+                    StopGoEffect();
+                    StopGroundEffect();
+                }
+            }
+
+            wasMovingSound = isMoveSound;
+        }
         // Определяем целевой угол в зависимости от движения вперед или назад
         if (moveInput > 0)
         {
@@ -291,7 +269,16 @@ public class Player : MonoBehaviour
             targetTiltAngle = 0.0f; // Возвращаемся в исходное положение
         }
 
+        photonView.RPC("SyncTiltAngle", RpcTarget.All, targetTiltAngle);
 
+        WheelRotation(moveInput, turnInput);
+
+        // Синхронизируем вращение колес через RPC
+        photonView.RPC("SyncWheelRotation", RpcTarget.Others, moveInput, turnInput);
+    }
+    [PunRPC]
+    void SyncTiltAngle(float targetTiltAngle)
+    {
         // Плавно изменяем текущий угол к целевому
         tiltAngle = Mathf.Lerp(tiltAngle, targetTiltAngle, Time.deltaTime * tiltSpeed);
 
@@ -303,46 +290,26 @@ public class Player : MonoBehaviour
             Quaternion.Euler(tiltAngle, 0, 0),
             Time.deltaTime * tiltSpeed);
 
+        // Применяем наклон к башне с учётом её текущего поворота
+        float towerRotationY = managerTower.tower.localRotation.eulerAngles.y;
+        float correctedTiltAngle = tiltAngle;
+
+        // Если башня повёрнута на 90-270 градусов, инвертируем наклон
+        if (towerRotationY > 90f && towerRotationY < 270f)
+        {
+            correctedTiltAngle = -tiltAngle;
+        }
         // Применяем наклон к башне
-        tower.localRotation = Quaternion.Lerp(
-            tower.localRotation,
-            Quaternion.Euler(tiltAngle, tower.localRotation.eulerAngles.y, 0),
-            Time.deltaTime * tiltSpeed);
-        WheelRotation(moveInput, turnInput);
+        managerTower.tower.localRotation = Quaternion.Lerp(
+        managerTower.tower.localRotation,
+        Quaternion.Euler(correctedTiltAngle, towerRotationY, 0),
+        Time.deltaTime * tiltSpeed);
     }
-    void RotateWheels()
+    [PunRPC]
+    void SyncWheelRotation(float forward_back, float left_right)
     {
-        float moveInput = Input.GetAxis("Vertical");
-        float turnInput = Input.GetAxis("Horizontal");
-
-        // Вращение колес при движении вперед/назад и повороте
-        float forwardRotation = moveInput * speedWheels * Time.deltaTime;
-
-        foreach (Transform wheel in rightWheels)
-        {
-            wheel.Rotate(Vector3.right, forwardRotation);  // Вращение правых колес
-        }
-        foreach (Transform wheel in leftWheels)
-        {
-            wheel.Rotate(Vector3.right, forwardRotation);  // Вращение левых колес
-        }
-
-        if (Mathf.Abs(turnInput) > 0.01f)
-        {
-            float turnRotation = turnInput * rotationSpeed * Time.deltaTime;
-            foreach (Transform wheel in rightWheels)
-            {
-                wheel.Rotate(Vector3.right, -turnRotation);  // Противоположное вращение правых колес
-            }
-            foreach (Transform wheel in leftWheels)
-            {
-                wheel.Rotate(Vector3.right, turnRotation);  // Вращение левых колес
-            }
-        }
+        WheelRotation(forward_back, left_right);
     }
-
-
-
     void WheelRotation(float forward_back, float left_right)
     {
         // Вращение колес при движении вперед/назад
@@ -370,5 +337,81 @@ public class Player : MonoBehaviour
                 wheel.Rotate(Vector3.right, turnRotation); // Вращаем левые колеса при повороте
             }
         }
+    }
+    // Включаем эффект движения
+    void PlayGoEffect()
+    {
+        foreach (var effect in goEffect)
+        {
+            if (!effect.isPlaying)
+            {
+                effect.Play();
+            }
+        }
+    }
+    // Останавливаем эффект движения
+    void StopGoEffect()
+    {
+        foreach (var effect in goEffect)
+        {
+            if (effect.isPlaying)
+            {
+                effect.Stop();
+            }
+        }
+    }
+    void PlayGroundEffect()
+    {
+        foreach (var effect in graundEffect)
+        {
+            if (!effect.isPlaying)
+            {
+                effect.Play();
+            }
+        }
+    }
+
+    // Останавливаем эффект движения
+    void StopGroundEffect()
+    {
+        foreach (var effect in graundEffect)
+        {
+            if (effect.isPlaying)
+            {
+                effect.Stop();
+            }
+        }
+    }
+
+    // Включаем эффект ожидания
+    void PlayWaitEffect()
+    {
+        foreach (var effect in waitEffect)
+        {
+            if (!effect.isPlaying)
+            {
+                effect.Play();
+            }
+        }
+    }
+
+    // Останавливаем эффект ожидания
+    void StopWaitEffect()
+    {
+        foreach (var effect in waitEffect)
+        {
+            if (effect.isPlaying)
+            {
+                effect.Stop();
+            }
+        }
+    }
+
+    // Останавливаем все эффекты (если танк разрушен)
+    void StopAllEffects()
+    {
+        StopGroundEffect();
+        StopGoEffect();
+        StopWaitEffect();
     }
 }
