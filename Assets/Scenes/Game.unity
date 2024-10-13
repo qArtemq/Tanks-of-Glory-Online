@@ -20561,7 +20561,7 @@ MonoBehaviour:
   - {fileID: 896928737}
   - {fileID: 433710776}
   - {fileID: 2009439055}
-  speed: 10
+  speed: 20
   spherePrefab: {fileID: 5606000640117672817, guid: de6fedff5abf23847b1950986f1a2bd8, type: 3}
   cinemachineCameraPrefab: {fileID: 9027181482485212234, guid: 333438ff84962884daa36c0ee7d9ca90, type: 3}
   arcHeight: 5
