@@ -48,22 +48,13 @@ public class GameManager : MonoBehaviourPunCallbacks
     }
     void Update()
     {
-        // ѕолучаем значение прокрутки колесика мыши
-        float scroll = Input.GetAxis("Mouse ScrollWheel");
-
-        // ѕровер€ем прокрутку колесика мыши
-        if (scroll != 0)
-        {
-            t = Mathf.Clamp01(t + scroll * zoomSpeed);
-        }
-
         // ѕровер€ем нажатие клавиш Z и X
-        if (Input.GetKey(KeyCode.Z))
+        if (Input.GetKey(KeyCode.O))
         {
             // ”меньшаем t, перемещаем камеру ближе к первой точке (pointA)
             t = Mathf.Clamp01(t - zoomSpeed / 40);
         }
-        else if (Input.GetKey(KeyCode.X))
+        else if (Input.GetKey(KeyCode.I))
         {
             // ”величиваем t, перемещаем камеру ближе ко второй точке (pointB)
             t = Mathf.Clamp01(t + zoomSpeed / 40);

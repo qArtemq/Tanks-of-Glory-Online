@@ -10,7 +10,7 @@ public class ScoreManager : MonoBehaviourPun
     public TextMeshProUGUI blueTeamScoreText;
 
     [Header("Game Settings")]
-    private int maxScore = 2;
+    private int maxScore = 8;
 
     public static int redTeamScore = 0;
     public static int blueTeamScore = 0;

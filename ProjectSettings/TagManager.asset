@@ -8,6 +8,7 @@ TagManager:
   - Spawn
   - Ground
   - Bullet
+  - Sound
   layers:
   - Default
   - TransparentFX
